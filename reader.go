@@ -10,10 +10,11 @@ import (
 	"time"
 	"strconv"
 	"sort"
+	"encoding/csv"
 )
 
 type Request struct {
-	time string
+	time int
 	userId string
 	videoId string
 }
@@ -40,7 +41,7 @@ func sortedKeys(m map[string]int, order string) []string {
 	sm.m = m
 	sm.s = make([]string, len(m))
 	i := 0
-	for key, _ := range m {
+	for key := range m {
 		sm.s[i] = key
 		i++
 	}
@@ -112,31 +113,32 @@ func main() {
 
 	file, _ := os.Open(youTubeFile)
 	defer file.Close()
-	reader := gonx.NewReader(file, format)
+	reader := csv.NewReader(file)
+	reader.Comma = '\t'
+	reader.FieldsPerRecord = 3
 
-	requestSlice := make([]Request, 100)
+	requests := make([]Request, 100)
 	lastRequestTime := make(map[string]int)
-	requestTimeThreshold := 300
+	requestTimeThreshold := 180
 	videoCount := make(map[string]int)
 
 	for {
-		rec, err := reader.Read()
+		record, err := reader.Read()
 		if err == io.EOF {
 			break
 		} else if err != nil {
 			panic(err)
 		}
 
-		requestTime, _ := rec.Field("request_time")
-		requestTimeInt, _ := strconv.Atoi(requestTime)
-		userId, _ := rec.Field("user_id")
-		videoId, _ := rec.Field("video_id")
+		requestTime, _ := strconv.Atoi(record[0])
+		userId := record[1]
+		videoId := record[2]
 
-		if requestTimeInt - lastRequestTime[userId + "." + videoId] < requestTimeThreshold {
+		if requestTime - lastRequestTime[userId + videoId] < requestTimeThreshold {
 			continue
 		}
-		lastRequestTime[userId + "." + videoId] = requestTimeInt
-		requestSlice = append(requestSlice, Request{requestTime, userId, videoId})
+		lastRequestTime[userId + videoId] = requestTime
+		requests = append(requests, Request{requestTime, userId, videoId})
 		videoCount[videoId]++
 	}
 
@@ -155,13 +157,10 @@ func main() {
 	userCount := make(map[string]int)
 	requestCount := 0
 
-	file, _ = os.Open(youTubeFile)
-	defer file.Close()
-	reader = gonx.NewReader(file, format)
 	writer, _ := os.Create(outputFile)
 	defer writer.Close()
 
-	for _, request := range requestSlice {
+	for _, request := range requests {
 		videoId := request.videoId
 		if !isPopular[videoId] {
 			continue
@@ -169,7 +168,7 @@ func main() {
 
 		requestTime := request.time
 		userId := request.userId
-		log := requestTime + "\t" + userId + "\t" + videoId + "\n"
+		log := strconv.Itoa(requestTime) + "\t" + userId + "\t" + videoId + "\n"
 		fmt.Print(log)
 		writer.WriteString(log)
 		videoCount[videoId]++
